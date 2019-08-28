@@ -98,6 +98,7 @@ class MobileNetV2(nn.Module):
     def __init__(self,
                  heads,
                  head_conv=0,
+                 last_channel=1280,
                  width_mult=1.0,
                  inverted_residual_setting=None,
                  round_nearest=8):
@@ -114,7 +115,6 @@ class MobileNetV2(nn.Module):
         super(MobileNetV2, self).__init__()
         block = InvertedResidual
         input_channel = 32
-        last_channel = 1280
         self.inplanes = last_channel
         self.deconv_with_bias = False
         self.heads = heads
