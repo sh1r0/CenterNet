@@ -250,7 +250,7 @@ class MobileNetV2(nn.Module):
         return [ret]
 
 
-def get_mobilenet_v2(heads, head_conv):
+def get_mobilenet_v2(heads, head_conv, **kwargs):
     model = MobileNetV2(heads, head_conv=head_conv)
     model.init_weights()
     return model

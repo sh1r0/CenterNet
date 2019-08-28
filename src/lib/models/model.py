@@ -20,7 +20,7 @@ _model_factory = {
   'dla': get_dla_dcn,
   'resdcn': get_pose_net_dcn,
   'hourglass': get_large_hourglass_net,
-  'mobilenet_v2': get_mobilenet_v2,
+  'mobilenetv2': get_mobilenet_v2,
 }
 
 def create_model(arch, heads, head_conv):
