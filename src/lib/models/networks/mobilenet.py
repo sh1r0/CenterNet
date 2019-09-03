@@ -237,6 +237,14 @@ class MobileNetV2(nn.Module):
         url = model_urls['mobilenet_v2']
         pretrained_state_dict = model_zoo.load_url(url)
         print('=> loading pretrained model {}'.format(url))
+
+        if self.last_channel != 1280:
+            keys_to_remove = list(
+                filter(lambda k: k.startswith('features.18.'),
+                       pretrained_state_dict.keys()))
+            for key in keys_to_remove:
+                pretrained_state_dict.pop(key)
+
         self.load_state_dict(pretrained_state_dict, strict=False)
 
     def forward(self, x):
@@ -251,6 +259,6 @@ class MobileNetV2(nn.Module):
 
 
 def get_mobilenet_v2(heads, head_conv, **kwargs):
-    model = MobileNetV2(heads, head_conv=head_conv)
+    model = MobileNetV2(heads, head_conv=head_conv, last_channel=256)
     model.init_weights()
     return model
