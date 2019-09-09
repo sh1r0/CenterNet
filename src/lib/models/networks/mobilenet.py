@@ -1,4 +1,5 @@
 from torch import nn
+import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
 
 __all__ = ['MobileNetV2']
@@ -94,6 +95,17 @@ class InvertedResidual(nn.Module):
             return self.conv(x)
 
 
+class Interpolate(nn.Module):
+    def __init__(self, scale, mode='nearest'):
+        super(Interpolate, self).__init__()
+        self.scale = scale
+        self.mode = mode
+
+    def forward(self, x):
+        x = F.interpolate(x, scale_factor=self.scale, mode=self.mode)
+        return x
+
+
 class MobileNetV2(nn.Module):
     def __init__(self,
                  heads,
@@ -101,7 +113,8 @@ class MobileNetV2(nn.Module):
                  last_channel=1280,
                  width_mult=1.0,
                  inverted_residual_setting=None,
-                 round_nearest=8):
+                 round_nearest=8,
+                 use_deconv=True):
         """
         MobileNet V2 main class
 
@@ -161,12 +174,12 @@ class MobileNetV2(nn.Module):
         # make it nn.Sequential
         self.features = nn.Sequential(*features)
 
-        # used for deconv layers
-        self.deconv_layers = self._make_deconv_layer(
-            3,
-            [256, 256, 256],
-            [4, 4, 4],
-        )
+        if use_deconv:
+            self.upsample_layers = self._make_deconv_layer([256, 256, 256],
+                                                           [4, 4, 4])
+        else:
+            self.upsample_layers = self._make_conv_upsample_layer(
+                [256, 256, 256], [3, 3, 3])
 
         for head in sorted(self.heads):
             num_output = self.heads[head]
@@ -190,17 +203,11 @@ class MobileNetV2(nn.Module):
                                padding=0)
             self.__setattr__(head, fc)
 
-    def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
-        assert num_layers == len(num_filters), \
-            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
-        assert num_layers == len(num_kernels), \
-            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
-
+    def _make_deconv_layer(self, num_filters, kernels):
         layers = []
-        for i in range(num_layers):
-            kernel, padding, output_padding = _get_deconv_cfg(num_kernels[i])
+        for planes, kernel_size in zip(num_filters, kernels):
+            kernel, padding, output_padding = _get_deconv_cfg(kernel_size)
 
-            planes = num_filters[i]
             layers.append(
                 nn.ConvTranspose2d(in_channels=self.inplanes,
                                    out_channels=planes,
@@ -215,9 +222,52 @@ class MobileNetV2(nn.Module):
 
         return nn.Sequential(*layers)
 
+    def _make_conv_upsample_layer(self,
+                                  num_filters,
+                                  kernels,
+                                  use_depthwise=False):
+        layers = []
+        for out_planes, kernel_size in zip(num_filters, kernels):
+            layers.append(Interpolate(2))
+            padding = (kernel_size - 1) // 2
+            if not use_depthwise:
+                layers.append(
+                    nn.Conv2d(self.inplanes,
+                              out_planes,
+                              kernel_size,
+                              padding=padding,
+                              bias=False))
+            else:
+                layers.extend([
+                    nn.Conv2d(self.inplanes,
+                              self.inplanes,
+                              kernel_size,
+                              padding=padding,
+                              groups=self.inplanes,
+                              bias=False),
+                    nn.Conv2d(self.inplanes, out_planes, 1, bias=False)
+                ])
+            layers.append(nn.BatchNorm2d(out_planes))
+            layers.append(nn.ReLU(inplace=True))
+            self.inplanes = out_planes
+
+        return nn.Sequential(*layers)
+
     def init_weights(self):
-        for _, m in self.deconv_layers.named_modules():
-            if isinstance(m, nn.ConvTranspose2d):
+        for m in self.features.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+        for m in self.upsample_layers.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight, std=0.001)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.ConvTranspose2d):
                 nn.init.normal_(m.weight, std=0.001)
                 if self.deconv_with_bias:
                     nn.init.constant_(m.bias, 0)
@@ -250,7 +300,7 @@ class MobileNetV2(nn.Module):
     def forward(self, x):
         x = self.features(x)
 
-        x = self.deconv_layers(x)
+        x = self.upsample_layers(x)
         ret = {}
         for head in self.heads:
             ret[head] = self.__getattr__(head)(x)
@@ -259,6 +309,9 @@ class MobileNetV2(nn.Module):
 
 
 def get_mobilenet_v2(heads, head_conv, **kwargs):
-    model = MobileNetV2(heads, head_conv=head_conv, last_channel=256)
+    model = MobileNetV2(heads,
+                        head_conv=head_conv,
+                        last_channel=256,
+                        use_deconv=True)
     model.init_weights()
     return model
