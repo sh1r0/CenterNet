@@ -32,6 +32,12 @@ class opts(object):
                                   'Reloaded the optimizer parameter and '
                                   'set load_model to model_last.pth '
                                   'in the exp dir if load_model is empty.') 
+    self.parser.add_argument('--freeze', action='store_true',
+                             help='''
+                             Whether to freeze the parameters that are
+                             available in the pretrained model.
+                             Useful for finetuning.
+                             ''')
 
     # system
     self.parser.add_argument('--gpus', default='0', 

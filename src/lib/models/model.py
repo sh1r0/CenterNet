@@ -33,7 +33,7 @@ def create_model(arch, heads, head_conv):
   return model
 
 def load_model(model, model_path, optimizer=None, resume=False, 
-               lr=None, lr_step=None):
+               lr=None, lr_step=None, freeze=False):
   start_epoch = 0
   checkpoint = torch.load(model_path, map_location=lambda storage, loc: storage)
   print('loaded {}, epoch {}'.format(model_path, checkpoint['epoch']))
@@ -49,6 +49,7 @@ def load_model(model, model_path, optimizer=None, resume=False,
   model_state_dict = model.state_dict()
 
   # check loaded parameters and created model parameters
+  trainable_param_names = set()
   for k in state_dict:
     if k in model_state_dict:
       if state_dict[k].shape != model_state_dict[k].shape:
@@ -56,13 +57,21 @@ def load_model(model, model_path, optimizer=None, resume=False,
               'loaded shape{}.'.format(
           k, model_state_dict[k].shape, state_dict[k].shape))
         state_dict[k] = model_state_dict[k]
+        trainable_param_names.add(k)
     else:
       print('Drop parameter {}.'.format(k))
   for k in model_state_dict:
     if not (k in state_dict):
       print('No param {}.'.format(k))
       state_dict[k] = model_state_dict[k]
+      trainable_param_names.add(k)
   model.load_state_dict(state_dict, strict=False)
+
+  if freeze:
+    for name, param in model.named_parameters():
+      if name not in trainable_param_names:
+        print('Freeze parameter {}.'.format(name))
+        param.requires_grad = False
 
   # resume optimizer parameters
   if optimizer is not None and resume:
