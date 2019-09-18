@@ -114,7 +114,8 @@ class MobileNetV2(nn.Module):
                  width_mult=1.0,
                  inverted_residual_setting=None,
                  round_nearest=8,
-                 use_deconv=True):
+                 use_deconv=True,
+                 use_depthwise=False):
         """
         MobileNet V2 main class
 
@@ -179,22 +180,38 @@ class MobileNetV2(nn.Module):
                                                            [4, 4, 4])
         else:
             self.upsample_layers = self._make_conv_upsample_layer(
-                [256, 256, 256], [3, 3, 3])
+                [256, 256, 256], [3, 3, 3], use_depthwise=use_depthwise)
 
         for head in sorted(self.heads):
             num_output = self.heads[head]
             if head_conv > 0:
-                fc = nn.Sequential(
-                    nn.Conv2d(256,
-                              head_conv,
-                              kernel_size=3,
-                              padding=1,
-                              bias=True), nn.ReLU(inplace=True),
+                layers = []
+                if not use_depthwise:
+                    layers.append(
+                        nn.Conv2d(256,
+                                  head_conv,
+                                  kernel_size=3,
+                                  padding=1,
+                                  bias=True)
+                    )
+                else:
+                    layers.extend([
+                        nn.Conv2d(256,
+                                  256,
+                                  kernel_size=3,
+                                  padding=1,
+                                  groups=256,
+                                  bias=False),
+                        nn.Conv2d(256, head_conv, 1, bias=True)
+                    ])
+                layers.extend([
+                    nn.ReLU(inplace=True),
                     nn.Conv2d(head_conv,
                               num_output,
                               kernel_size=1,
                               stride=1,
-                              padding=0))
+                              padding=0)])
+                fc = nn.Sequential(*layers)
             else:
                 fc = nn.Conv2d(in_channels=256,
                                out_channels=num_output,
@@ -312,6 +329,7 @@ def get_mobilenet_v2(heads, head_conv, **kwargs):
     model = MobileNetV2(heads,
                         head_conv=head_conv,
                         last_channel=256,
-                        use_deconv=True)
+                        use_deconv=False,
+                        use_depthwise=True)
     model.init_weights()
     return model
